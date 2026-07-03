@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "knok": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1783078988,
+        "narHash": "sha256-Xn78fYbP+4Pmqo8VAgjHqo0OEdiYSy30zLvPhFNlLIU=",
+        "owner": "gmmyung",
+        "repo": "knok",
+        "rev": "0e368cd5ac5870202d2fd995b2a60208c8a3671f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "gmmyung",
+        "repo": "knok",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1781359544,
+        "narHash": "sha256-iUuzKQcyXvopYDDzFpMK5eQKP3WIJExYny2kJtbgUcE=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "9f11f828c213641c2369a9f1fa31fe31557e3156",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "knok": "knok"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

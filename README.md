@@ -20,6 +20,12 @@ cargo run --release
 The first run downloads MNIST into `data/` and compiles the static graphs with
 IREE. The default run trains two short epochs over 100 batches each.
 
+An egui app can train the same model and run mouse-drawn digit inference:
+
+```sh
+cargo run --release --bin mnist_gui
+```
+
 Tunable environment variables:
 
 ```sh
@@ -30,10 +36,11 @@ Use `MNIST_DIR=/path/to/data` to reuse an existing MNIST IDX cache.
 
 ## Notes
 
-`Cargo.toml` depends on `knok` and `knok-build` from GitHub `main`, so this
-example follows the merged autograd implementation directly. The `flake.nix`
-reuses the upstream `knok` development shell, including the IREE compiler and
-MLIR runtime link settings.
+`Cargo.toml` currently depends on the `random-static-runtime` knok branch so
+the model can initialize weights with knok's deterministic `uniform_static`
+graph helper. The `flake.nix` reuses the upstream `knok` development shell,
+including the IREE compiler and MLIR runtime link settings.
 
-The graph uses static `BATCH=64`, `IMAGE_PIXELS=784`, `HIDDEN=128`, and
-`CLASSES=10`. Last partial batches are intentionally skipped.
+The graph uses static `BATCH=64`, `IMAGE_PIXELS=784`, `HIDDEN=256`, and
+`CLASSES=10`, with a 784 -> 256 -> 256 -> 10 MLP. Last partial batches are
+intentionally skipped.

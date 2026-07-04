@@ -1,17 +1,9 @@
-mod data;
-mod sgd;
-
 use std::{env, error::Error, path::PathBuf};
 
-use knok::{prelude::*, Engine};
-
-const BATCH: usize = 64;
-const IMAGE_PIXELS: usize = 28 * 28;
-const HIDDEN: usize = 128;
-const CLASSES: usize = 10;
-
-knok::generated_graphs!(pub mod forward_graphs, "knok_forward_graphs.rs");
-knok::generated_graphs!(pub mod grad_graphs, "knok_grad_graphs.rs");
+use knok::Engine;
+use knok_mnist_training::{
+    batch_with_labels, data, evaluate, forward_graphs, grad_graphs, sgd, Model, BATCH, HIDDEN,
+};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -23,18 +15,11 @@ struct Config {
     eval_batches: usize,
 }
 
-struct Model {
-    w1: Vec<f32>,
-    b1: Vec<f32>,
-    w2: Vec<f32>,
-    b2: Vec<f32>,
-}
-
 fn main() -> Result<()> {
     let config = Config::from_env();
     let (train, test) = data::load_or_download(&config.data_dir)?;
     let mut rng = sgd::Rng::new(0x5eed);
-    let mut model = Model::new(&mut rng);
+    let mut model = Model::new()?;
     let mut order = (0..train.len()).collect::<Vec<_>>();
 
     let grad_engine = Engine::for_artifact(grad_graphs::mnist_loss_value_and_grad::artifact())?;
@@ -54,9 +39,9 @@ fn main() -> Result<()> {
         for batch in 0..max_batches {
             let batch_indices = &order[batch * BATCH..(batch + 1) * BATCH];
             let (images, labels) = batch_with_labels(&train, batch_indices)?;
-            let (w1, b1, w2, b2) = model.tensors()?;
+            let (w1, b1, w2, b2, w3, b3) = model.tensors()?;
 
-            let (loss, _grad_images, grad_w1, grad_b1, grad_w2, grad_b2) =
+            let (loss, _grad_images, grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3) =
                 grad_graphs::mnist_loss_value_and_grad::run(
                     &grad_engine,
                     images,
@@ -65,12 +50,16 @@ fn main() -> Result<()> {
                     b1,
                     w2,
                     b2,
+                    w3,
+                    b3,
                 )?;
 
             sgd::step(&mut model.w1, grad_w1.as_slice(), config.learning_rate);
             sgd::step(&mut model.b1, grad_b1.as_slice(), config.learning_rate);
             sgd::step(&mut model.w2, grad_w2.as_slice(), config.learning_rate);
             sgd::step(&mut model.b2, grad_b2.as_slice(), config.learning_rate);
+            sgd::step(&mut model.w3, grad_w3.as_slice(), config.learning_rate);
+            sgd::step(&mut model.b3, grad_b3.as_slice(), config.learning_rate);
 
             loss_sum += loss.as_slice()[0];
         }
@@ -95,96 +84,6 @@ impl Config {
             eval_batches: env_usize("EVAL_BATCHES", 20),
         }
     }
-}
-
-impl Model {
-    fn new(rng: &mut sgd::Rng) -> Self {
-        Self {
-            w1: init_matrix(rng, IMAGE_PIXELS, HIDDEN),
-            b1: vec![0.0; HIDDEN],
-            w2: init_matrix(rng, HIDDEN, CLASSES),
-            b2: vec![0.0; CLASSES],
-        }
-    }
-
-    fn tensors(
-        &self,
-    ) -> Result<(
-        Tensor2<f32, IMAGE_PIXELS, HIDDEN>,
-        Tensor1<f32, HIDDEN>,
-        Tensor2<f32, HIDDEN, CLASSES>,
-        Tensor1<f32, CLASSES>,
-    )> {
-        Ok((
-            Tensor2::from_vec(self.w1.clone())?,
-            Tensor1::from_vec(self.b1.clone())?,
-            Tensor2::from_vec(self.w2.clone())?,
-            Tensor1::from_vec(self.b2.clone())?,
-        ))
-    }
-}
-
-fn init_matrix(rng: &mut sgd::Rng, rows: usize, cols: usize) -> Vec<f32> {
-    let scale = (6.0_f32 / (rows + cols) as f32).sqrt();
-    (0..rows * cols)
-        .map(|_| rng.uniform(-scale, scale))
-        .collect()
-}
-
-fn batch_with_labels(
-    dataset: &data::Mnist,
-    indices: &[usize],
-) -> Result<(Tensor2<f32, BATCH, IMAGE_PIXELS>, Tensor2<i64, BATCH, 1>)> {
-    let mut images = Vec::with_capacity(BATCH * IMAGE_PIXELS);
-    let mut labels = Vec::with_capacity(BATCH);
-    for &index in indices {
-        images.extend_from_slice(dataset.image(index));
-        labels.push(i64::from(dataset.label(index)));
-    }
-    Ok((Tensor2::from_vec(images)?, Tensor2::from_vec(labels)?))
-}
-
-fn batch_images(dataset: &data::Mnist, start: usize) -> Result<Tensor2<f32, BATCH, IMAGE_PIXELS>> {
-    let mut images = Vec::with_capacity(BATCH * IMAGE_PIXELS);
-    for index in start..start + BATCH {
-        images.extend_from_slice(dataset.image(index));
-    }
-    Ok(Tensor2::from_vec(images)?)
-}
-
-fn evaluate(
-    engine: &Engine,
-    model: &Model,
-    dataset: &data::Mnist,
-    max_batches: usize,
-) -> Result<f32> {
-    let batches = max_batches.min(dataset.len() / BATCH);
-    let mut correct = 0_usize;
-    let mut total = 0_usize;
-
-    for batch in 0..batches {
-        let images = batch_images(dataset, batch * BATCH)?;
-        let (w1, b1, w2, b2) = model.tensors()?;
-        let logits = forward_graphs::mnist_logits::run(engine, images, w1, b1, w2, b2)?;
-
-        for (row, label_index) in logits.as_slice().chunks_exact(CLASSES).zip(0..) {
-            let predicted = argmax(row);
-            let expected = dataset.label(batch * BATCH + label_index);
-            correct += usize::from(predicted == expected);
-            total += 1;
-        }
-    }
-
-    Ok(100.0 * correct as f32 / total.max(1) as f32)
-}
-
-fn argmax(values: &[f32]) -> u8 {
-    values
-        .iter()
-        .enumerate()
-        .max_by(|(_, lhs), (_, rhs)| lhs.total_cmp(rhs))
-        .map(|(index, _)| index as u8)
-        .expect("class logits are non-empty")
 }
 
 fn env_usize(name: &str, default: usize) -> usize {

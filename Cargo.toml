@@ -5,9 +5,10 @@ edition = "2021"
 publish = false
 
 [dependencies]
+eframe = "0.29.1"
 flate2 = "1.0"
-knok = { git = "https://github.com/gmmyung/knok", branch = "main" }
+knok = { git = "https://github.com/gmmyung/knok", branch = "random-static-runtime" }
 ureq = "2.12"
 
 [build-dependencies]
-knok-build = { git = "https://github.com/gmmyung/knok", branch = "main" }
+knok-build = { git = "https://github.com/gmmyung/knok", branch = "random-static-runtime" }

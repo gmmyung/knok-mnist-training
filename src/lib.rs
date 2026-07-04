@@ -57,6 +57,28 @@ impl Model {
             Tensor1::from_vec(self.b3.clone())?,
         ))
     }
+
+    pub fn ensure_finite(&self) -> Result<()> {
+        ensure_finite_slice("w1", &self.w1)?;
+        ensure_finite_slice("b1", &self.b1)?;
+        ensure_finite_slice("w2", &self.w2)?;
+        ensure_finite_slice("b2", &self.b2)?;
+        ensure_finite_slice("w3", &self.w3)?;
+        ensure_finite_slice("b3", &self.b3)?;
+        Ok(())
+    }
+}
+
+pub fn ensure_finite_slice(name: &str, values: &[f32]) -> Result<()> {
+    if let Some((index, value)) = values
+        .iter()
+        .copied()
+        .enumerate()
+        .find(|(_, value)| !value.is_finite())
+    {
+        return Err(format!("{name} contains non-finite value at index {index}: {value}").into());
+    }
+    Ok(())
 }
 
 pub fn batch_with_labels(

@@ -64,11 +64,15 @@ fn mnist_loss(
     b3: T1<f32, CLASSES>,
 ) -> T0<f32> {
     let logits = mlp_logits(detach(images), w1, b1, w2, b2, w3, b3);
-    let probabilities: T2<f32, BATCH, CLASSES> = softmax_axis(logits, 1);
-    let log_probabilities = log(probabilities);
-    let picked: T2<f32, BATCH, 1> = take_along_axis(log_probabilities, labels, 1);
-    let negative_log_likelihood: T0<f32> = mean(picked);
-    -negative_log_likelihood
+    let max_logits: T2<f32, BATCH, 1> =
+        unsqueeze::<T2<f32, BATCH, 1>>(max_axis::<T1<f32, BATCH>>(logits.clone(), 1));
+    let shifted = logits.clone() - max_logits.clone();
+    let sum_exp: T2<f32, BATCH, 1> =
+        unsqueeze::<T2<f32, BATCH, 1>>(sum_axis::<T1<f32, BATCH>>(exp(shifted), 1));
+    let log_sum_exp = log(sum_exp);
+    let picked: T2<f32, BATCH, 1> = take_along_axis(logits, labels, 1);
+    let negative_log_likelihood = log_sum_exp + max_logits - picked;
+    mean(negative_log_likelihood)
 }
 
 fn main() {

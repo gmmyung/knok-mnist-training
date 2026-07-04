@@ -2,7 +2,8 @@ use std::{env, error::Error, path::PathBuf};
 
 use knok::Engine;
 use knok_mnist_training::{
-    batch_with_labels, data, evaluate, forward_graphs, grad_graphs, sgd, Model, BATCH, HIDDEN,
+    batch_with_labels, data, ensure_finite_slice, evaluate, forward_graphs, grad_graphs, sgd,
+    Model, BATCH, HIDDEN,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -54,14 +55,30 @@ fn main() -> Result<()> {
                     b3,
                 )?;
 
+            let loss_value = loss.as_slice()[0];
+            if !loss_value.is_finite() {
+                return Err(format!(
+                    "non-finite loss at epoch {epoch}, batch {}: {loss_value}",
+                    batch + 1
+                )
+                .into());
+            }
+            ensure_finite_slice("grad_w1", grad_w1.as_slice())?;
+            ensure_finite_slice("grad_b1", grad_b1.as_slice())?;
+            ensure_finite_slice("grad_w2", grad_w2.as_slice())?;
+            ensure_finite_slice("grad_b2", grad_b2.as_slice())?;
+            ensure_finite_slice("grad_w3", grad_w3.as_slice())?;
+            ensure_finite_slice("grad_b3", grad_b3.as_slice())?;
+
             sgd::step(&mut model.w1, grad_w1.as_slice(), config.learning_rate);
             sgd::step(&mut model.b1, grad_b1.as_slice(), config.learning_rate);
             sgd::step(&mut model.w2, grad_w2.as_slice(), config.learning_rate);
             sgd::step(&mut model.b2, grad_b2.as_slice(), config.learning_rate);
             sgd::step(&mut model.w3, grad_w3.as_slice(), config.learning_rate);
             sgd::step(&mut model.b3, grad_b3.as_slice(), config.learning_rate);
+            model.ensure_finite()?;
 
-            loss_sum += loss.as_slice()[0];
+            loss_sum += loss_value;
         }
 
         let avg_loss = loss_sum / max_batches.max(1) as f32;

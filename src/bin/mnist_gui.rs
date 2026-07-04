@@ -13,8 +13,8 @@ use std::{
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke};
 use knok::{prelude::*, Engine};
 use knok_mnist_training::{
-    batch_with_labels, data, evaluate, forward_graphs, grad_graphs, run_logits, sgd, Model, BATCH,
-    CLASSES, IMAGE_PIXELS,
+    batch_with_labels, data, ensure_finite_slice, evaluate, forward_graphs, grad_graphs,
+    run_logits, sgd, Model, BATCH, CLASSES, IMAGE_PIXELS,
 };
 
 type GuiResult<T> = std::result::Result<T, Box<dyn Error>>;
@@ -97,7 +97,10 @@ enum TrainingEvent {
     },
     Finished(Model),
     Cancelled(Model),
-    Failed(String),
+    Failed {
+        model: Option<Model>,
+        error: String,
+    },
 }
 
 struct Prediction {
@@ -374,7 +377,10 @@ impl MnistGuiApp {
 
         thread::spawn(move || {
             if let Err(error) = run_training(config, initial_model, worker_cancel, &tx) {
-                let _ = tx.send(TrainingEvent::Failed(error.to_string()));
+                let _ = tx.send(TrainingEvent::Failed {
+                    model: None,
+                    error: error.to_string(),
+                });
             }
         });
 
@@ -423,7 +429,11 @@ impl MnistGuiApp {
                     self.training_log = "Training stopped".to_owned();
                     finished = true;
                 }
-                TrainingEvent::Failed(error) => {
+                TrainingEvent::Failed { model, error } => {
+                    if let Some(model) = model {
+                        self.model = Some(model);
+                        self.prediction = None;
+                    }
                     self.training_log = format!("Training failed: {error}");
                     finished = true;
                 }
@@ -586,14 +596,52 @@ fn run_training(
                     b3,
                 )?;
 
+            let loss_value = loss.as_slice()[0];
+            if !loss_value.is_finite() {
+                let _ = tx.send(TrainingEvent::Failed {
+                    model: Some(model),
+                    error: format!(
+                        "non-finite loss at epoch {epoch}, batch {}: {loss_value}",
+                        batch + 1
+                    ),
+                });
+                return Ok(());
+            }
+            if let Err(error) = ensure_finite_slice("grad_w1", grad_w1.as_slice())
+                .and_then(|_| ensure_finite_slice("grad_b1", grad_b1.as_slice()))
+                .and_then(|_| ensure_finite_slice("grad_w2", grad_w2.as_slice()))
+                .and_then(|_| ensure_finite_slice("grad_b2", grad_b2.as_slice()))
+                .and_then(|_| ensure_finite_slice("grad_w3", grad_w3.as_slice()))
+                .and_then(|_| ensure_finite_slice("grad_b3", grad_b3.as_slice()))
+            {
+                let _ = tx.send(TrainingEvent::Failed {
+                    model: Some(model),
+                    error: format!(
+                        "non-finite gradient at epoch {epoch}, batch {}: {error}",
+                        batch + 1
+                    ),
+                });
+                return Ok(());
+            }
+
             sgd::step(&mut model.w1, grad_w1.as_slice(), config.learning_rate);
             sgd::step(&mut model.b1, grad_b1.as_slice(), config.learning_rate);
             sgd::step(&mut model.w2, grad_w2.as_slice(), config.learning_rate);
             sgd::step(&mut model.b2, grad_b2.as_slice(), config.learning_rate);
             sgd::step(&mut model.w3, grad_w3.as_slice(), config.learning_rate);
             sgd::step(&mut model.b3, grad_b3.as_slice(), config.learning_rate);
+            if let Err(error) = model.ensure_finite() {
+                let _ = tx.send(TrainingEvent::Failed {
+                    model: Some(model),
+                    error: format!(
+                        "non-finite parameter after epoch {epoch}, batch {}: {error}",
+                        batch + 1
+                    ),
+                });
+                return Ok(());
+            }
 
-            loss_sum += loss.as_slice()[0];
+            loss_sum += loss_value;
         }
 
         let avg_loss = loss_sum / max_batches.max(1) as f32;

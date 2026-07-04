@@ -25,6 +25,11 @@ impl Rng {
         }
     }
 
+    pub fn index(&mut self, upper: usize) -> usize {
+        assert!(upper > 0);
+        (self.next_u64() as usize) % upper
+    }
+
     fn next_f32(&mut self) -> f32 {
         let value = self.next_u64() >> 40;
         value as f32 / (1_u32 << 24) as f32
